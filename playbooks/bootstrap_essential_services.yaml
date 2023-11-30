@@ -1,0 +1,61 @@
+---
+- name: Bootstrap Essentials
+  hosts: node0
+  remote_user: ubuntu
+  vars:
+    # domain_name: "cloud.example.com"
+    maintainer_email: "my.email@email.com"
+    registry_password: "adminPasswd"
+
+    local_repo_dir: "{{ playbook_dir }}/.."
+    composes_dir: "{{ ansible_env.HOME }}/composes"
+
+  tasks:
+    - name: Copy compose files
+      ansible.builtin.copy:
+        src: "{{ local_repo_dir }}/composes/"
+        dest: "{{ composes_dir }}/"
+        mode: "0655"
+
+    - name: Create traefik overlay net
+      failed_when: cmd_out.stderr != "" and "already exists" not in cmd_out.stderr
+      changed_when: "'Error' not in cmd_out.stdout_lines"
+      register: cmd_out
+      ansible.builtin.shell: |
+        docker network create --driver overlay --attachable traefik-public
+
+    - name: Start traefik stack
+      failed_when: cmd_out.stderr != ""
+      changed_when: "'Error' not in cmd_out.stdout_lines"
+      register: cmd_out
+      ansible.builtin.shell: |
+        cd {{ composes_dir }}/traefik &&
+        export USER_PASSWD_HASH_FOR_COMPOSE=$(./create_pass.sh {{ registry_password }}) &&
+        docker stack deploy -c docker-compose.yaml traefik
+      environment:
+        DOMAIN_NAME: "{{ domain_name }}"
+        MAINTAINER_EMAIL: "{{ maintainer_email }}"
+
+    - name: Start portainer stack
+      failed_when: cmd_out.stderr != ""
+      changed_when: "'Error' not in cmd_out.stdout_lines"
+      register: cmd_out
+      ansible.builtin.shell: |
+        cd {{ composes_dir }}/portainer &&
+        docker stack deploy -c docker-compose.yaml portainer
+      environment:
+        DOMAIN_NAME: "{{ domain_name }}"
+        HOSTNAME: "{{ ansible_hostname }}"
+
+    - name: Start registry stack
+      failed_when: cmd_out.stderr != ""
+      changed_when: "'Error' not in cmd_out.stdout_lines"
+      register: cmd_out
+      ansible.builtin.shell: |
+        cd {{ composes_dir }}/registry &&
+        sudo ./setup_passwd.sh $REGISTRY_PASSWD &&
+        docker stack deploy -c docker-compose.yaml registry
+      environment:
+        DOMAIN_NAME: "{{ domain_name }}"
+        HOSTNAME: "{{ ansible_hostname }}"
+        REGISTRY_PASSWD: "{{ registry_password }}"

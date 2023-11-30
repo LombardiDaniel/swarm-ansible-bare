@@ -1,0 +1,37 @@
+---
+- name: Setup Oracle VMs
+  hosts: all
+  become: true
+  remote_user: ubuntu
+  vars:
+    local_repo_dir: "{{ playbook_dir }}/.."
+
+  tasks:
+    - name: Copy setup script to server
+      ansible.builtin.copy:
+        src: "{{ local_repo_dir }}/scripts/setup_oracle_vm.sh"
+        dest: "/"
+        mode: "0755"
+
+    - name: Setup
+      register: stdout
+      changed_when: stdout | regex_search('successfully')
+      ansible.legacy.command: "/setup_oracle_vm.sh"
+      environment:
+        REMOTE_USER: "{{ ansible_user }}"
+
+    - name: Copy firewall script to server
+      ansible.builtin.copy:
+        src: "{{ local_repo_dir }}/scripts/disable_iptables_firewall.sh"
+        dest: "/"
+        mode: "0755"
+
+    - name: Creates startup disable-firewall crontab
+      ansible.builtin.cron:
+        name: "disable firewall"
+        special_time: reboot
+        user: root
+        job: "/disable_iptables_firewall.sh"
+
+    - name: Unconditionally reboot the machine with all defaults
+      ansible.builtin.reboot:
